@@ -135,9 +135,10 @@ kpi(k5, "Avg. Amount",        f"{avg_amt:.0f}",      "neutral-val", prefix="$")
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📈 Overview", "💰 Amounts", "📅 Time Trends",
-    "🧠 Model Performance", "🔎 Explorer & Predictor"
+    "🧠 Model Performance", "🔎 Explorer",
+    "🔮 Single Prediction", "📂 Batch Prediction"
 ])
 
 COLORS = {"Legitimate": "#00cc88", "Fraud": "#ff4d4d"}
@@ -359,7 +360,27 @@ with tab4:
     overlap = int(((dff["prediction"]==1) & (dff["iso_anomaly"]==1)).sum())
     st.info(f"🔗 **{overlap:,}** transactions flagged by **both** models — highest-confidence fraud cases.")
 
-# ═══════ TAB 5 — EXPLORER & PREDICTOR ═══════════════════════
+# ── Helper: build feature row ────────────────────────────────
+DOW_MAP   = {"Mon":0,"Tue":1,"Wed":2,"Thu":3,"Fri":4,"Sat":5,"Sun":6}
+MONTH_MAP = {"Jan":1,"Feb":2,"Mar":3,"Apr":4,"May":5,"Jun":6,
+             "Jul":7,"Aug":8,"Sep":9,"Oct":10,"Nov":11,"Dec":12}
+MEDIAN_FREQ = int(df["MerchantID"].value_counts().median())
+
+def build_row(amount, tx_type, location, merch_id, dow_str, month_str, day=15):
+    dow_val   = DOW_MAP[dow_str]
+    month_val = MONTH_MAP[month_str]
+    is_wknd   = 1 if dow_val >= 5 else 0
+    quarter   = (month_val - 1) // 3 + 1
+    amt_sc    = scaler.transform([[amount]])[0][0]
+    amt_bkt   = min(4, int(amount>500)+int(amount>1000)+int(amount>2000)+int(amount>3500))
+    type_enc  = 1 if tx_type == "refund" else 0
+    loc_enc   = le_loc.transform([location])[0]
+    mfreq     = int(df["MerchantID"].value_counts().get(merch_id, MEDIAN_FREQ))
+    return [[amount, amt_sc, amt_bkt,
+             dow_val, month_val, day, is_wknd, quarter,
+             merch_id, mfreq, type_enc, loc_enc]]
+
+# ═══════ TAB 5 — EXPLORER ════════════════════════════════════
 with tab5:
     st.markdown('<div class="section-title">Transaction Explorer</div>', unsafe_allow_html=True)
     view = st.radio("View", ["All","Fraud Only","Legit Only"], horizontal=True)
@@ -371,62 +392,215 @@ with tab5:
     show_df["prediction"]  = show_df["prediction"].map({0:"✅ Legit",1:"🚨 Fraud"})
     show_df["iso_anomaly"] = show_df["iso_anomaly"].map({0:"Normal",1:"⚠️ Anomaly"})
     show_df["fraud_prob"]  = show_df["fraud_prob"].map("{:.3f}".format)
-    st.dataframe(show_df, use_container_width=True, height=380)
+    st.dataframe(show_df, use_container_width=True, height=500)
     st.caption(f"Top 300 by fraud probability from {len(view_df):,} filtered rows")
 
-    # ── Live Predictor ────────────────────────────────────────
+# ═══════ TAB 6 — SINGLE PREDICTION ══════════════════════════
+with tab6:
+    st.markdown("### 🔮 Single Transaction Fraud Predictor")
+    st.caption("Fill in the transaction details and get an instant fraud risk assessment from the trained model.")
     st.divider()
-    st.markdown('<div class="section-title">🔮 Live Transaction Predictor</div>', unsafe_allow_html=True)
-    st.caption("Enter transaction details for a real-time risk prediction")
 
-    lc1, lc2, lc3 = st.columns(3)
-    with lc1:
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown("**💳 Transaction Details**")
         inp_amount = st.number_input("Amount ($)", 1.0, 5000.0, 2500.0, step=50.0)
-        inp_type   = st.selectbox("Transaction Type", ["purchase","refund"])
-    with lc2:
-        inp_loc    = st.selectbox("City", sorted(metrics["locations"]))
+        inp_type   = st.selectbox("Transaction Type", ["purchase", "refund"])
         inp_merch  = st.number_input("Merchant ID", 1, 1000, 500)
-    with lc3:
-        inp_dow    = st.selectbox("Day of Week", ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"])
-        inp_month  = st.selectbox("Month", ["Jan","Feb","Mar","Apr","May","Jun",
-                                            "Jul","Aug","Sep","Oct","Nov","Dec"])
+    with c2:
+        st.markdown("**📍 Location & Time**")
+        inp_loc   = st.selectbox("City", sorted(metrics["locations"]))
+        inp_dow   = st.selectbox("Day of Week", list(DOW_MAP.keys()))
+        inp_month = st.selectbox("Month", list(MONTH_MAP.keys()))
+    with c3:
+        st.markdown("**⚙️ Risk Indicators**")
+        dow_val   = DOW_MAP[inp_dow]
+        month_val = MONTH_MAP[inp_month]
+        st.info(f"""
+        **Pre-computed signals:**
+        - Is Weekend: {'Yes ⚠️' if dow_val >= 5 else 'No ✅'}
+        - Is Refund: {'Yes ⚠️' if inp_type == 'refund' else 'No ✅'}
+        - High Amount: {'Yes ⚠️' if inp_amount > 3000 else 'No ✅'}
+        - High-Risk City: {'Yes ⚠️' if inp_loc in ['New York','Los Angeles','Houston'] else 'No ✅'}
+        - Quarter: Q{(month_val - 1) // 3 + 1}
+        """)
 
-    if st.button("🔍 Predict Fraud Risk", use_container_width=True):
-        dow_map   = {"Mon":0,"Tue":1,"Wed":2,"Thu":3,"Fri":4,"Sat":5,"Sun":6}
-        month_map = {"Jan":1,"Feb":2,"Mar":3,"Apr":4,"May":5,"Jun":6,
-                     "Jul":7,"Aug":8,"Sep":9,"Oct":10,"Nov":11,"Dec":12}
-
-        dow_val   = dow_map[inp_dow]
-        month_val = month_map[inp_month]
-        is_wknd   = 1 if dow_val >= 5 else 0
-        quarter   = (month_val - 1) // 3 + 1
-        amt_sc    = scaler.transform([[inp_amount]])[0][0]
-        amt_bkt   = min(4, int(inp_amount>500)+int(inp_amount>1000)+
-                           int(inp_amount>2000)+int(inp_amount>3500))
-        type_enc  = 1 if inp_type == "refund" else 0
-        loc_enc   = le_loc.transform([inp_loc])[0]
-        merch_freq= int(df["MerchantID"].value_counts().get(inp_merch, df["MerchantID"].value_counts().median()))
-
-        row = [[inp_amount, amt_sc, amt_bkt,
-                dow_val, month_val, 15, is_wknd, quarter,
-                inp_merch, merch_freq,
-                type_enc, loc_enc]]
-
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🔍  Run Fraud Prediction", use_container_width=True, type="primary"):
+        row  = build_row(inp_amount, inp_type, inp_loc, inp_merch, inp_dow, inp_month)
         prob = rf.predict_proba(row)[0][1]
         pred = rf.predict(row)[0]
         iso_r= iso.predict(row)[0]
 
-        if pred == 1 or prob > 0.5:
-            st.error(f"🚨 **FRAUD DETECTED** — Confidence: {prob*100:.1f}%")
-        elif prob > 0.25:
-            st.warning(f"⚠️ **Suspicious Transaction** — Risk Score: {prob*100:.1f}%")
+        st.divider()
+        # ── Verdict banner ────────────────────────────────────
+        if prob >= 0.5:
+            st.error(f"## 🚨 FRAUD DETECTED\nModel confidence: **{prob*100:.1f}%** — Block this transaction immediately.")
+        elif prob >= 0.25:
+            st.warning(f"## ⚠️ SUSPICIOUS TRANSACTION\nRisk score: **{prob*100:.1f}%** — Flag for manual review.")
         else:
-            st.success(f"✅ **Legitimate Transaction** — Risk Score: {prob*100:.1f}%")
+            st.success(f"## ✅ LEGITIMATE TRANSACTION\nRisk score: **{prob*100:.1f}%** — Safe to approve.")
 
-        r1, r2, r3 = st.columns(3)
-        r1.metric("Fraud Probability", f"{prob*100:.2f}%")
-        r2.metric("RF Prediction",     "🚨 Fraud" if pred == 1 else "✅ Legit")
-        r3.metric("Isolation Forest",  "⚠️ Anomaly" if iso_r == -1 else "Normal")
+        # ── Metrics row ───────────────────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Fraud Probability",  f"{prob*100:.2f}%")
+        m2.metric("Legit Probability",  f"{(1-prob)*100:.2f}%")
+        m3.metric("Random Forest",      "🚨 Fraud" if pred == 1 else "✅ Legit")
+        m4.metric("Isolation Forest",   "⚠️ Anomaly" if iso_r == -1 else "✅ Normal")
+
+        # ── Probability gauge bar ─────────────────────────────
+        st.markdown('<div class="section-title">Risk Score Gauge</div>', unsafe_allow_html=True)
+        fig_g = go.Figure(go.Indicator(
+            mode="gauge+number+delta",
+            value=round(prob * 100, 2),
+            delta={"reference": 25, "valueformat": ".1f"},
+            title={"text": "Fraud Probability (%)"},
+            gauge={
+                "axis": {"range": [0, 100]},
+                "bar":  {"color": "#ff4d4d" if prob > 0.5 else "#ffd700" if prob > 0.25 else "#00cc88"},
+                "steps": [
+                    {"range": [0,  25],  "color": "#1a2b1a"},
+                    {"range": [25, 50],  "color": "#2b2a1a"},
+                    {"range": [50, 100], "color": "#2b1a1a"},
+                ],
+                "threshold": {"line": {"color": "white", "width": 3}, "value": 50}
+            }
+        ))
+        fig_g.update_layout(paper_bgcolor=BG, font_color=FONT, height=300, margin=dict(t=30,b=10))
+        st.plotly_chart(fig_g, use_container_width=True)
+
+        # ── Feature contribution breakdown ────────────────────
+        st.markdown('<div class="section-title">Why this prediction? — Feature Breakdown</div>',
+                    unsafe_allow_html=True)
+        feat_names = metrics["features"]
+        feat_imp   = rf.feature_importances_
+        feat_vals  = row[0]
+        contrib_df = pd.DataFrame({
+            "Feature":    feat_names,
+            "Importance": feat_imp,
+            "Value":      [f"{v:.3f}" for v in feat_vals]
+        }).sort_values("Importance", ascending=True)
+        fig_c = px.bar(contrib_df, x="Importance", y="Feature", orientation="h",
+                       color="Importance", color_continuous_scale=["#2d3a5e","#4d9fff","#ff4d4d"],
+                       hover_data={"Value": True},
+                       labels={"Importance":"Feature Weight","Feature":""})
+        fig_c.update_layout(paper_bgcolor=BG, plot_bgcolor=BG, font_color=FONT,
+                            coloraxis_showscale=False, height=380, margin=dict(t=10,b=10))
+        st.plotly_chart(fig_c, use_container_width=True)
+
+# ═══════ TAB 7 — BATCH PREDICTION ════════════════════════════
+with tab7:
+    st.markdown("### 📂 Batch CSV Prediction")
+    st.caption("Upload a CSV of transactions and get fraud predictions for all rows instantly.")
+    st.divider()
+
+    # ── Template download ─────────────────────────────────────
+    st.markdown('<div class="section-title">Step 1 — Download Template</div>', unsafe_allow_html=True)
+    template = pd.DataFrame({
+        "Amount":          [1500.0, 4800.0, 320.0],
+        "TransactionType": ["purchase", "refund", "purchase"],
+        "Location":        ["New York", "Houston", "Chicago"],
+        "MerchantID":      [101, 850, 300],
+        "DayOfWeek":       ["Mon", "Sat", "Wed"],
+        "Month":           ["Jan", "Dec", "Mar"],
+    })
+    csv_template = template.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "⬇️ Download CSV Template", csv_template,
+        file_name="batch_template.csv", mime="text/csv"
+    )
+    st.dataframe(template, use_container_width=True)
+
+    # ── Upload & predict ──────────────────────────────────────
+    st.markdown('<div class="section-title">Step 2 — Upload Your CSV</div>', unsafe_allow_html=True)
+    uploaded = st.file_uploader("Upload CSV (same columns as template)", type=["csv"])
+
+    if uploaded:
+        try:
+            udf = pd.read_csv(uploaded)
+            required = ["Amount","TransactionType","Location","MerchantID","DayOfWeek","Month"]
+            missing  = [c for c in required if c not in udf.columns]
+
+            if missing:
+                st.error(f"❌ Missing columns: {missing}  |  Required: {required}")
+            else:
+                st.success(f"✅ Loaded **{len(udf):,}** transactions — running predictions...")
+
+                rows, probs, preds, iso_rs = [], [], [], []
+                for _, r in udf.iterrows():
+                    try:
+                        row = build_row(
+                            float(r["Amount"]), str(r["TransactionType"]),
+                            str(r["Location"]),  int(r["MerchantID"]),
+                            str(r["DayOfWeek"]),  str(r["Month"])
+                        )
+                        prob = rf.predict_proba(row)[0][1]
+                        pred = rf.predict(row)[0]
+                        iso_r= iso.predict(row)[0]
+                        probs.append(round(prob, 4))
+                        preds.append(pred)
+                        iso_rs.append(1 if iso_r == -1 else 0)
+                    except Exception:
+                        probs.append(None); preds.append(None); iso_rs.append(None)
+
+                udf["fraud_probability"] = probs
+                udf["rf_prediction"]     = preds
+                udf["iso_anomaly"]       = iso_rs
+
+                # ── Summary KPIs ──────────────────────────────
+                valid = udf.dropna(subset=["rf_prediction"])
+                total_b  = len(valid)
+                fraud_b  = int(valid["rf_prediction"].sum())
+                safe_b   = total_b - fraud_b
+                both_b   = int(((valid["rf_prediction"]==1) & (valid["iso_anomaly"]==1)).sum())
+
+                b1, b2, b3, b4 = st.columns(4)
+                b1.metric("Total Processed", f"{total_b:,}")
+                b2.metric("🚨 Fraud Flagged", f"{fraud_b:,}")
+                b3.metric("✅ Legitimate",    f"{safe_b:,}")
+                b4.metric("🔗 Both Models",   f"{both_b:,}")
+
+                # ── Results table ─────────────────────────────
+                st.markdown('<div class="section-title">Prediction Results</div>', unsafe_allow_html=True)
+                display_df = udf.copy()
+                display_df["rf_prediction"] = display_df["rf_prediction"].map(
+                    {0:"✅ Legit", 1:"🚨 Fraud", None:"Error"})
+                display_df["iso_anomaly"]   = display_df["iso_anomaly"].map(
+                    {0:"Normal", 1:"⚠️ Anomaly", None:"Error"})
+                display_df["fraud_probability"] = display_df["fraud_probability"].apply(
+                    lambda x: f"{x:.2%}" if x is not None else "—")
+                st.dataframe(display_df.sort_values("fraud_probability", ascending=False),
+                             use_container_width=True, height=400)
+
+                # ── Fraud distribution chart ──────────────────
+                if fraud_b > 0:
+                    st.markdown('<div class="section-title">Fraud Distribution in Upload</div>',
+                                unsafe_allow_html=True)
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        pie2 = pd.DataFrame({"Status":["Legitimate","Fraud"],"Count":[safe_b,fraud_b]})
+                        fig_p = px.pie(pie2, values="Count", names="Status", hole=0.5,
+                                       color="Status", color_discrete_map=COLORS)
+                        st.plotly_chart(base_layout(fig_p, 280), use_container_width=True)
+                    with c2:
+                        fig_h = px.histogram(udf.dropna(), x="fraud_probability", nbins=20,
+                                             color_discrete_sequence=["#4d9fff"],
+                                             labels={"fraud_probability":"Fraud Score"})
+                        st.plotly_chart(base_layout(fig_h, 280), use_container_width=True)
+
+                # ── Download results ──────────────────────────
+                st.markdown('<div class="section-title">Step 3 — Download Results</div>',
+                            unsafe_allow_html=True)
+                result_csv = udf.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "⬇️ Download Predictions CSV", result_csv,
+                    file_name="batch_predictions.csv", mime="text/csv",
+                    type="primary"
+                )
+
+        except Exception as e:
+            st.error(f"❌ Error processing file: {e}")
 
 # ── Footer ────────────────────────────────────────────────────
 st.divider()
