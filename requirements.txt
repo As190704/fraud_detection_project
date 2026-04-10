@@ -3,4 +3,4 @@ joblib
 jsonschema
 pandas
 scikit-learn
-plotly
+
