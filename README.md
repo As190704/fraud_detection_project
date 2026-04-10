@@ -76,6 +76,8 @@ For the dashboard batch tab, uploaded CSV must include:
 - `DayOfWeek` (must be one of: `Mon`, `Tue`, `Wed`, `Thu`, `Fri`, `Sat`, `Sun`)
 - `Month` (3-letter abbreviation only, one of: `Jan`, `Feb`, `Mar`, `Apr`, `May`, `Jun`, `Jul`, `Aug`, `Sep`, `Oct`, `Nov`, `Dec`)
 
+> Note: `DayOfWeek` and `Month` values are case-sensitive and should match the formats above.
+
 ## Model Metrics
 
 Model performance is saved to `metrics.json` after each pipeline run and shown in the dashboard.
