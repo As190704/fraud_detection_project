@@ -73,8 +73,8 @@ For the dashboard batch tab, uploaded CSV must include:
 - `TransactionType` (`purchase` or `refund`)
 - `Location`
 - `MerchantID`
-- `DayOfWeek` (e.g., `Mon`, `Tue`, ...)
-- `Month` (e.g., `Jan`, `Feb`, ...)
+- `DayOfWeek` (must be one of: `Mon`, `Tue`, `Wed`, `Thu`, `Fri`, `Sat`, `Sun`)
+- `Month` (3-letter abbreviation only, one of: `Jan`, `Feb`, `Mar`, `Apr`, `May`, `Jun`, `Jul`, `Aug`, `Sep`, `Oct`, `Nov`, `Dec`)
 
 ## Current Saved Metrics (from `metrics.json`)
 
