@@ -76,12 +76,15 @@ For the dashboard batch tab, uploaded CSV must include:
 - `DayOfWeek` (must be one of: `Mon`, `Tue`, `Wed`, `Thu`, `Fri`, `Sat`, `Sun`)
 - `Month` (3-letter abbreviation only, one of: `Jan`, `Feb`, `Mar`, `Apr`, `May`, `Jun`, `Jul`, `Aug`, `Sep`, `Oct`, `Nov`, `Dec`)
 
-## Current Saved Metrics (from `metrics.json`)
+## Model Metrics
 
-- Precision: **0.1843**
-- Recall: **0.1346**
-- F1 Score: **0.1556**
-- ROC-AUC: **0.6664**
+Model performance is saved to `metrics.json` after each pipeline run and shown in the dashboard.
+
+To inspect current saved metrics from the command line:
+
+```bash
+cat metrics.json
+```
 
 ## Notes
 
